@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 const CHROME = process.env.CHROME ?? 'google-chrome';
 const shots = process.argv[2] ?? null;
 const BASE = '/pagetether/';
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
 const work = await mkdtemp(join(tmpdir(), 'pagetether-site-'));
 const siteDir = join(work, 'site');
@@ -145,6 +145,25 @@ async function main() {
     assert.equal(await evaluate('pagetetherSite.realProbes'), true);
   });
 
+  await check('this browser gives the baked answer for every scene in the example pool', async () => {
+    const { right, of, ms } = await evaluate('pagetetherSite.scenes.agreement');
+    assert.ok(of >= 64, `only ${of} scenes in the pool`);
+    assert.equal(right, of);
+    console.log(`    ${of} scenes laid out in ${Math.round(ms)} ms`);
+  });
+
+  await check('scenes: the viewer draws a scene and compares it with a DOM that has no layout', async () => {
+    const boxes = await evaluate(`document.querySelectorAll('#scene-plot svg rect').length`);
+    assert.ok(boxes >= 4, `${boxes} boxes drawn`);
+    const facts = await evaluate(`document.getElementById('scene-facts').textContent`);
+    assert.match(facts, /matches the answer measured in Chromium, Firefox and WebKit/);
+    assert.match(facts, /wrong key/);
+    const before = await evaluate(`document.getElementById('scene-caption').textContent`);
+    await evaluate(`document.getElementById('scene-next').click()`);
+    assert.notEqual(await evaluate(`document.getElementById('scene-caption').textContent`), before);
+    assert.match(await evaluate(`document.getElementById('scene-agree').textContent`), /baked answer for \d+ of \d+ scenes/);
+  });
+
   await check('live: the real client mints and its requests are accepted', async () => {
     await waitFor('pagetetherSite.live.last?.result.ok === true', 'a first accepted request');
     assert.equal(await evaluate(`document.getElementById('live-status').textContent.trim()`), 'page open');
@@ -185,12 +204,14 @@ async function main() {
     flood: ['too_early', 'replay', 'ok', 'ok', 'ok', 'ok', 'ok'],
     clone: ['ok', 'ok', 'fork', 'unknown_generator', 'unknown_generator'],
     'no-browser': ['bad_mac', 'bad_mac', 'ok'],
+    table: ['ok', 'ok', 'bad_mac', 'unknown_generator', 'unknown_generator'],
     'full-port': ['ok', 'ok', 'ok', 'ok', 'ok'],
   };
   const charts = {
     stale: [30, 6, 0, 0, 0],
     flood: [60, 60, 60, 60, 60],
     clone: 60,
+    table: [60, 60, 0, 0, 0],
     'full-port': [60, 60, 60, 60, 60],
   };
   assert.deepEqual(await evaluate('pagetetherSite.lab.scenarios'), Object.keys(expected));
@@ -212,7 +233,7 @@ async function main() {
       } else {
         assert.equal(bars, null);
       }
-      if (shots && ['cold', 'stale', 'flood', 'clone', 'full-port'].includes(id)) {
+      if (shots && ['cold', 'stale', 'flood', 'clone', 'no-browser', 'table', 'full-port'].includes(id)) {
         await screenshot(`lab-${id}-light`, { width: 1280, height: 900, selector: '#lab' });
       }
     });
@@ -263,6 +284,10 @@ async function main() {
     await screenshot('mobile-hero', { width: 390, height: 844, selector: '.hero' });
     await screenshot('mobile-lab', { width: 390, height: 844, selector: '#lab' });
     await screenshot('mobile-how', { width: 390, height: 844, selector: '#how' });
+    await screenshot('scenes-light', { width: 1280, height: 900, selector: '#scenes' });
+    await screenshot('scenes-dark', { width: 1280, height: 900, dark: true, selector: '#scenes' });
+    await screenshot('mobile-scenes', { width: 390, height: 844, selector: '#scenes' });
+    await screenshot('problem-light', { width: 1280, height: 900, selector: '#problem' });
     await screenshot('rest-light', { width: 1280, height: 900, selector: '#limits' });
     await screenshot('use-dark', { width: 1280, height: 900, dark: true, selector: '#use' });
     console.log(`screenshots in ${shots}`);

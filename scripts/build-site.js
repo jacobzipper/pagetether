@@ -17,7 +17,7 @@ if (out === resolve(root) || resolve(root).startsWith(out + '/')) {
 }
 
 // Only what the browser needs: the Node bindings stay out.
-const LIB = ['core.js', 'tether.js', 'web.js', 'client.js', 'probes.js'];
+const LIB = ['core.js', 'tether.js', 'web.js', 'client.js', 'probes.js', 'scenes.js'];
 
 await rm(out, { recursive: true, force: true });
 await mkdir(join(out, 'lib'), { recursive: true });
@@ -34,6 +34,8 @@ for (const name of await readdir(join(root, 'site'))) {
   await writeFile(join(out, name), rewritten);
 }
 for (const name of LIB) await cp(join(root, 'src', name), join(out, 'lib', name));
+// The example scene pool, which the page checks this browser against.
+await cp(join(root, 'pools', 'example.json'), join(out, 'pool.json'));
 
 // Tell GitHub Pages to serve the files as they are.
 await writeFile(join(out, '.nojekyll'), '');

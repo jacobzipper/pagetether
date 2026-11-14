@@ -1,6 +1,7 @@
 import { createECDH, createHash, createHmac } from 'node:crypto';
 import { Tether } from '../src/server.js';
 import { TetherClient } from '../src/client.js';
+import { generateScene, sceneDigest, digestToHex } from '../src/scenes.js';
 import {
   TOKEN_HEADER,
   ERROR_HEADER,
@@ -13,6 +14,7 @@ import {
   beatInput,
   formatToken,
   runProgram,
+  fmix32,
 } from '../src/core.js';
 
 export const ORIGIN = 'http://app.test';
@@ -79,6 +81,21 @@ export function harness(opts = {}) {
   return { tether, clock, events, fetchImpl, client };
 }
 
+// --- Scenes ------------------------------------------------------------------
+// The tests have no rendering engine, so they use a stand-in: an "engine" whose
+// answer to a scene is a hash of its stylesheet, and a pool baked with it.
+
+export const fakeEngine = (scene) => sceneDigest([...scene.c].map((ch) => ch.charCodeAt(0)));
+
+export function fakePool(count, seed = 1) {
+  let x = seed >>> 0;
+  const rand32 = () => fmix32((x = (x + 0x9e3779b9) >>> 0));
+  return Array.from({ length: count }, () => {
+    const scene = generateScene(rand32);
+    return { ...scene, d: digestToHex(fakeEngine(scene)) };
+  });
+}
+
 // --- A second, independent implementation of the client side ----------------
 // Written from the spec with node:crypto, with the key in the clear. It plays
 // the attacker who has fully reverse engineered the page, and doubles as an
@@ -88,14 +105,14 @@ const hmac = (key, data) => createHmac('sha256', key).update(data).digest();
 const sha256 = (data) => createHash('sha256').update(data).digest();
 
 /** Mint through `send` (a function from the mint message to the mint response). */
-export async function rawMint(send, probeImpl = probes) {
+export async function rawMint(send, probeImpl = probes, sceneImpl = null) {
   const ecdh = createECDH('prime256v1');
   ecdh.generateKeys();
   const mint = await send({ pub: b64u(ecdh.getPublicKey()) });
   if (!mint.ok) return { mint, gen: null };
   const seed = ecdh.computeSecret(unb64u(mint.pub));
   const challenge = unb64u(mint.challenge);
-  const out = runProgram(mint.program, challenge, probeImpl);
+  const out = runProgram(mint.program, challenge, probeImpl, sceneImpl);
   const key = hmac(seed, epochInput(0, challenge, out));
   return { mint, gen: { gid: mint.gid, epoch: 0, key } };
 }
@@ -111,9 +128,9 @@ export function rawBeatMessage(gen) {
 }
 
 /** Apply a beat response, returning the generator for the next epoch. */
-export function rawAdvance(gen, response, probeImpl = probes) {
+export function rawAdvance(gen, response, probeImpl = probes, sceneImpl = null) {
   const challenge = unb64u(response.challenge);
-  const out = runProgram(response.program, challenge, probeImpl);
+  const out = runProgram(response.program, challenge, probeImpl, sceneImpl);
   const key = hmac(gen.key, epochInput(response.epoch, challenge, out));
   return { gid: gen.gid, epoch: response.epoch, key };
 }

@@ -9,6 +9,11 @@ import { Tether } from '../src/server.js';
 import { controlRoutes, guard, readBody } from '../src/node.js';
 import { domOracles } from '../src/probes.js';
 
+// Layout scenes whose answers were measured in real browsers. This pool ships
+// in the repository, so its answers are public: bake your own with
+// `npm run bake -- --out pool.json --chrome --firefox` before relying on it.
+const pool = JSON.parse(await readFile(new URL('../pools/example.json', import.meta.url), 'utf8'));
+
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const QUIET = process.env.QUIET === '1';
@@ -31,6 +36,7 @@ const tether = new Tether({
   epochMs: Number(process.env.EPOCH_MS ?? 30_000),
   budget: Number(process.env.BUDGET ?? 20),
   probes: domOracles,
+  scenes: pool,
   gate,
   onEvent: (type, detail) => {
     if (!QUIET) console.log(new Date().toISOString().slice(11, 19), type, JSON.stringify(detail));
@@ -44,6 +50,7 @@ const STATIC = {
   '/pagetether/client.js': [file('../src/client.js'), 'text/javascript; charset=utf-8'],
   '/pagetether/core.js': [file('../src/core.js'), 'text/javascript; charset=utf-8'],
   '/pagetether/probes.js': [file('../src/probes.js'), 'text/javascript; charset=utf-8'],
+  '/pagetether/scenes.js': [file('../src/scenes.js'), 'text/javascript; charset=utf-8'],
 };
 
 const PRODUCTS = ['lantern', 'compass', 'canteen', 'hatchet', 'bivouac', 'carabiner', 'tarp', 'flint'];
@@ -96,5 +103,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`pagetether demo on http://${HOST}:${server.address().port}`);
-  console.log(`epoch ${tether.epochMs} ms, budget ${tether.budget} requests per epoch`);
+  console.log(`epoch ${tether.epochMs} ms, budget ${tether.budget} requests per epoch, ${pool.scenes.length} layout scenes in the pool`);
 });

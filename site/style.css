@@ -411,3 +411,23 @@ footer {
   font-size: 0.82rem;
   color: var(--muted);
 }
+
+/* --- Scenes ---------------------------------------------------------------- */
+.scene-cols h3 { margin: 22px 0 8px; }
+.scene-cols h3:first-child { margin-top: 0; }
+.scene-widget { align-self: start; }
+.scene-plot { background: var(--band); border-radius: 10px; padding: 14px; }
+.scene-plot svg { display: block; width: 100%; height: auto; max-height: 340px; }
+.scene-root { fill: none; stroke: var(--line-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.scene-box { fill: var(--page); fill-opacity: 0.16; stroke: var(--page); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.scene-facts { display: grid; gap: 12px; margin-top: 14px; }
+.scene-fact { border-top: 1px solid var(--line); padding-top: 12px; }
+.scene-fact-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+.scene-fact code { font-size: 0.82rem; }
+.scene-fact .status, .scene-agree .status { white-space: normal; font-size: 0.86rem; }
+.scene-agree { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-strong); font-size: 0.86rem; }
+.scene-agree .muted { font-size: 0.76rem; color: var(--muted); }
+.measured { border-collapse: collapse; width: 100%; margin-top: 22px; font-size: 0.86rem; }
+.measured caption { text-align: left; font: 600 0.74rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-bottom: 8px; }
+.measured th, .measured td { text-align: left; padding: 8px 0; border-top: 1px solid var(--line); vertical-align: top; font-weight: 400; }
+.measured td { text-align: right; padding-left: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }

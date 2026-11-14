@@ -14,6 +14,7 @@ import {
   formatToken,
   runProgram,
 } from './core.js';
+import { domScenes, digestToHex } from './scenes.js';
 
 const subtle = globalThis.crypto.subtle;
 const HMAC = { name: 'HMAC', hash: 'SHA-256' };
@@ -41,6 +42,7 @@ export class TetherClient {
   #base;
   #fetch;
   #probes;
+  #scenes;
   #now;
   #sleep;
   #autoBeat;
@@ -56,6 +58,8 @@ export class TetherClient {
    * @param {string} [opts.base]       where the mint and beat endpoints live
    * @param {typeof fetch} [opts.fetch]
    * @param {Record<string, (arg: number) => number>} [opts.probes]
+   * @param {(scene: { t: any[], c: string }) => [number, number]} [opts.scenes]
+   *        answers layout scenes; defaults to rendering them in this document
    * @param {boolean} [opts.autoBeat]  keep the generator alive on a timer (default true)
    * @param {() => any} [opts.gateProof]  extra proof sent with a mint (captcha token, ...)
    * @param {() => number} [opts.now]
@@ -65,6 +69,7 @@ export class TetherClient {
     this.#base = (opts.base ?? '/__tether').replace(/\/$/, '');
     this.#fetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.#probes = opts.probes ?? {};
+    this.#scenes = opts.scenes ?? (typeof document === 'undefined' ? null : domScenes());
     this.#autoBeat = opts.autoBeat ?? true;
     this.#gateProof = opts.gateProof ?? null;
     this.#now = opts.now ?? Date.now;
@@ -173,6 +178,7 @@ export class TetherClient {
     this.#gen = {
       gid: m.gid,
       key,
+      shadow: this.#shadow(m),
       epoch: 0,
       ctr: 0,
       start: this.#now(),
@@ -194,7 +200,7 @@ export class TetherClient {
     const mac = await sign(g.key, beatInput(g.epoch));
     let r;
     try {
-      r = await this.#post('/beat', { gid: g.gid, epoch: g.epoch, mac: b64u(mac) });
+      r = await this.#post('/beat', { gid: g.gid, epoch: g.epoch, mac: b64u(mac), shadow: g.shadow });
     } catch (err) {
       if (err instanceof TetherError && DEAD.has(err.code)) {
         this.#drop(g.gid);
@@ -204,7 +210,7 @@ export class TetherClient {
     }
     const key = await this.#derive(g.key, r.epoch, r);
     if (this.#gen !== g) return;
-    this.#gen = { ...g, key, epoch: r.epoch, ctr: 0, start: this.#now() };
+    this.#gen = { ...g, key, shadow: this.#shadow(r), epoch: r.epoch, ctr: 0, start: this.#now() };
     this.#schedule();
   }
 
@@ -213,7 +219,7 @@ export class TetherClient {
     const c = unb64u(challenge);
     let out;
     try {
-      out = runProgram(program, c, this.#probes);
+      out = runProgram(program, c, this.#probes, this.#scenes);
     } catch (err) {
       throw new TetherError('program_failed', String(err?.message ?? err));
     }
@@ -221,6 +227,18 @@ export class TetherClient {
     const key = await importKey(raw);
     raw.fill(0);
     return key;
+  }
+
+  /** A server in report mode sends scenes that do not affect the key. Answer them for its statistics. */
+  #shadow({ shadow }) {
+    if (!Array.isArray(shadow)) return undefined;
+    return shadow.map((scene) => {
+      try {
+        return digestToHex(this.#scenes(scene));
+      } catch {
+        return null;
+      }
+    });
   }
 
   async #post(path, body) {

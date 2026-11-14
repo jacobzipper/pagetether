@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pagetether: an API that only answers a page that is still open</title>
-<meta name="description" content="An open protocol that makes a reverse-engineered API credential expire in seconds. Ratcheting keys, request-bound tokens, a per-page budget. Try the attacks yourself.">
+<title>pagetether: a private API that needs a real browser to call</title>
+<meta name="description" content="AI agents can read your JavaScript and write a headless client for your private API. pagetether is an open protocol that makes that client stop working: keys that ratchet every epoch, layout questions only a browser engine can answer, and a per-page budget. Try the attacks yourself.">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='7' cy='16' r='5' fill='%232a78d6'/%3E%3Ccircle cx='25' cy='16' r='5' fill='%230b0b0b'/%3E%3Cpath d='M12 16h8' stroke='%232a78d6' stroke-width='2.5'/%3E%3C/svg%3E">
 </head>
@@ -17,6 +17,7 @@
   </a>
   <nav aria-label="Sections">
     <a href="#how">How it works</a>
+    <a href="#scenes">Scenes</a>
     <a href="#lab">Attack lab</a>
     <a href="#limits">Limits</a>
     <a href="#use">Use it</a>
@@ -29,8 +30,8 @@
 <section class="hero">
   <div class="hero-copy">
     <p class="eyebrow">Open protocol · draft 0</p>
-    <h1>An API that only answers a page that is still open.</h1>
-    <p class="lead">Once someone reverse engineers a site's private API, they copy its cookies and headers once and script against it forever. pagetether makes that credential perishable. Every request carries a token from a key that changes every epoch, and the only way to get the next key is to still be there.</p>
+    <h1>An agent can read all of your JavaScript. It still needs a browser.</h1>
+    <p class="lead">Tools now turn any website into an API: record the traffic, hand the JavaScript to a language model, get back a client that calls your private endpoints with no browser at all. pagetether makes that client stop working. Every request carries a token from a key that changes every epoch, and deriving the next key takes a real layout engine and a page that is still open.</p>
     <p class="cta">
       <a class="button primary" href="#lab">Watch the attacks fail</a>
       <a class="button" href="https://github.com/jacobzipper/pagetether">Read the code</a>
@@ -85,15 +86,16 @@
   <h2>Reverse engineer once, replay forever.</h2>
   <div class="cols">
     <div>
-      <p>A site's frontend talks to a private API. Someone opens DevTools, works out how the frontend authenticates, reproduces it in a script, and pulls data at machine speed with no browser at all.</p>
-      <p>The frontend runs on a machine the attacker controls, so nothing can prevent this outright. Anything the page can compute, they can compute. The useful question is what a working scraper <em>costs</em>, and whether that cost recurs.</p>
+      <p>A site's frontend talks to a private API. Working out how it authenticates used to take a person an afternoon in DevTools. Now it is a product category: tools that record a browsing session, give the capture and the scripts to a language model, and return a typed client for the site's private API. The client runs at machine speed with no browser.</p>
+      <p>Hiding the logic helps less every year, because a model reads through much of what obfuscation does. So pagetether assumes the agent has read everything. The frontend runs on a machine the attacker controls and nothing can prevent a copy outright. The useful questions are what a working scraper has to <em>carry</em>, what it <em>costs</em>, and whether that cost recurs.</p>
     </div>
     <div class="compare">
       <div class="compare-col">
         <h3>A cookie or a static signing routine</h3>
         <ul>
-          <li>Worked out once</li>
-          <li>Valid from anywhere, for as long as the session lasts</li>
+          <li>Worked out once, by a person or an agent</li>
+          <li>Runs anywhere, with no browser</li>
+          <li>Valid for as long as the session lasts</li>
           <li>Unlimited requests per credential</li>
           <li>Copies cost nothing</li>
         </ul>
@@ -101,7 +103,8 @@
       <div class="compare-col ours">
         <h3>A pagetether generator</h3>
         <ul>
-          <li>Has to keep running the server's code</li>
+          <li>Has to keep answering the server's questions</li>
+          <li>Needs a browser engine to answer them</li>
           <li>Dead within one epoch of stopping</li>
           <li>A fixed number of requests per epoch</li>
           <li>Copies share one allowance and collide</li>
@@ -129,7 +132,7 @@
     <li>
       <span class="num">3</span>
       <h3>Beat</h3>
-      <p>Before the epoch ends the page proves it holds the current key and receives a fresh challenge and a small random program. The next key is derived from the old key, the challenge, and what the program computes in the page.</p>
+      <p>Before the epoch ends the page proves it holds the current key and receives a fresh challenge, a small random program and two layout scenes. The next key is derived from the old key, the challenge, and what the program and the scenes come to in the page.</p>
     </li>
     <li>
       <span class="num">4</span>
@@ -161,17 +164,55 @@
       <p>The server recomputes the proof, checks the counter has not been used and is under the budget, and that is the whole verification. Failed proofs are rejected before any state is touched, so someone without the key cannot burn counters or get a generator revoked.</p>
     </div>
     <div>
-      <h3>Probes: questions for a real page</h3>
-      <p>The program the server sends can call <em>probes</em>: small questions that a genuine browser environment answers one way and an imitation answers another. The bundled examples ask the layout engine to size a box.</p>
-      <p>The answers are never sent back. They are folded into the next key. A wrong answer produces a wrong key, and the next request fails with the same error as a forged token. There is no verdict to study and nothing to say which answer was off.</p>
+      <h3>Wrong answers fail silently</h3>
+      <p>What the page computes each epoch is never sent back. It is folded into the next key. A client that gets any of it wrong derives a wrong key, and its next request fails with the same error as a forged token.</p>
+      <p>There is no verdict to study, no score, and nothing to say which answer was off or by how much. An agent iterating on a port gets one bit per attempt, and each attempt needs a fresh generator from your mint gate.</p>
+    </div>
+  </div>
+</section>
+
+<section id="scenes">
+  <p class="eyebrow">Scenes</p>
+  <h2>Questions with no formula to port.</h2>
+  <p class="section-lead">A check written in JavaScript can be read, and whatever it computes can be recomputed somewhere else. When one large site derived a request header from a rendered animation, the rendering turned out to be an easing curve and two interpolations, and it was ported to three languages. A scene is the opposite bet: nothing in the client says what the answer is.</p>
+
+  <div class="cols scene-cols">
+    <div>
+      <h3>What a scene is</h3>
+      <p>A small tree of empty boxes and a stylesheet that mixes block flow, floats, flexbox, grid, positioning, cascade layers and custom properties. The page hands it to the browser, reads back where every box ended up, and folds a hash of those numbers into the next key.</p>
+      <h3>Where the answers come from</h3>
+      <p>The server cannot compute them either. Its pool of scenes was <em>baked</em>: 9,000 random scenes were laid out in current Chromium, Firefox and WebKit at nine zoom settings each and in four older releases, and only the ones where all 37 runs agreed to the pixel were kept, with the answer they agreed on. About one in sixteen survives. Baking is one command and a few minutes, so a pool can be replaced as often as you like.</p>
+      <h3>What it takes to answer one</h3>
+      <p>An engine that resolves the cascade and does layout the way browsers do. DOM libraries such as jsdom have no layout and report every box as 0 by 0. The shortest program that answers every scene is a browser engine, which is the thing a headless client was written to avoid.</p>
+      <table class="measured">
+        <caption>Measured on a pool of 400 scenes</caption>
+        <tbody id="measured-rows">
+          <tr><th scope="row">Chromium 158, Firefox 159, WebKit 27.2 at 88 settings the bake never saw</th><td id="m-current">35,196 / 35,200</td></tr>
+          <tr><th scope="row">Six of eight older releases the bake never saw, back to 2022</th><td id="m-old">400 / 400</td></tr>
+          <tr><th scope="row">The other two: Chromium 128, WebKit 26.0</th><td id="m-old2">399, 393 / 400</td></tr>
+          <tr><th scope="row">jsdom, happy-dom, linkedom</th><td id="m-nodom">0 / 400</td></tr>
+        </tbody>
+      </table>
+      <p class="fine">Not measured yet: real phones, and Safari itself rather than its engine on Linux. <a href="https://github.com/jacobzipper/pagetether/blob/main/docs/DESIGN.md#3-scenes-measurements">Full results and method</a>.</p>
+    </div>
+
+    <div class="widget scene-widget" aria-label="Scene viewer">
+      <div class="widget-head">
+        <span class="widget-title">A scene, laid out by your browser</span>
+        <button class="link" id="scene-next" type="button">Another scene</button>
+      </div>
+      <div class="scene-plot" id="scene-plot"></div>
+      <p class="fine" id="scene-caption"></p>
+      <div class="scene-facts" id="scene-facts" aria-live="polite"></div>
+      <div class="scene-agree" id="scene-agree"></div>
     </div>
   </div>
 </section>
 
 <section id="lab" class="band">
   <p class="eyebrow">Attack lab</p>
-  <h2>Eight things an adversary tries, run for real.</h2>
-  <p class="section-lead">Each run starts a fresh verifier in this tab and plays the attack against it, using a from-scratch port of the client that holds its key in the clear. Time is simulated, so 30-second epochs pass instantly. The last attack succeeds, and that is the point of showing it.</p>
+  <h2>Nine things an adversary tries, run for real.</h2>
+  <p class="section-lead">Each run starts a fresh verifier in this tab and plays the attack against it, using a from-scratch port of the client that holds its key in the clear, the kind an agent would write. Time is simulated, so 30-second epochs pass instantly. The last attack succeeds, and that is the point of showing it.</p>
 
   <div class="lab">
     <div class="lab-list" role="tablist" aria-label="Attacks" id="lab-list"></div>
@@ -195,12 +236,12 @@
   <h2>What it does not do.</h2>
   <div class="limits">
     <div>
-      <h3>It does not stop a real browser under automation.</h3>
-      <p>A scripted browser driving the real page passes every check. pagetether forces a scraper back into a browser and caps what each one can pull. Spotting automated browsers is a separate job, and probes are a place to put those checks.</p>
+      <h3>It does not stop a real browser.</h3>
+      <p>A scripted browser driving the real page passes every check, and so does an AI agent driving one. A browser can also sit beside a headless client and answer its scenes. pagetether makes the scraper carry an engine and caps what each generator can pull. Telling automated browsers from people is a separate job.</p>
     </div>
     <div>
-      <h3>The bundled probes are examples.</h3>
-      <p>Their answers are in the repository. They stop a naive port and show the mechanism. Bring your own and calibrate them on real traffic before enforcing.</p>
+      <h3>Scenes are measured, not proven.</h3>
+      <p>A browser nobody baked against could lay a scene out differently and lock a real visitor out. Start in report mode: the server sends scenes without enforcing them and logs what your visitors' browsers answer. The pool in the repository is an example with public answers. Bake your own and rotate it.</p>
     </div>
     <div>
       <h3>The gate carries real weight.</h3>
@@ -223,18 +264,21 @@
 
 <section id="use" class="band">
   <p class="eyebrow">Use it</p>
-  <h2>Two files of setup, no dependencies.</h2>
+  <h2>Bake a pool, add two files, no dependencies.</h2>
   <div class="cols code-cols">
     <div>
       <h3>Server</h3>
 <pre><code>import { Tether } from 'pagetether/server';
 import { controlRoutes, guard, readBody } from 'pagetether/node';
 import { domOracles } from 'pagetether/probes';
+import pool from './pool.json' with { type: 'json' };
 
 const tether = new Tether({
-  epochMs: 30_000,     // a key lives this long
-  budget: 60,          // requests per epoch
-  probes: domOracles,  // expected probe answers
+  epochMs: 30_000,      // a key lives this long
+  budget: 60,           // requests per epoch
+  probes: domOracles,
+  scenes: pool,         // baked layout scenes
+  sceneMode: 'report',  // log first, then 'enforce'
   gate: ({ req }) =&gt; isLoggedIn(req),
 });
 const control = controlRoutes(tether);
@@ -247,10 +291,17 @@ http.createServer(async (req, res) =&gt; {
 });</code></pre>
     </div>
     <div>
+      <h3>Bake</h3>
+<pre><code># lay out random scenes in the browsers you
+# have, keep the ones they agree on
+npm run bake -- --out pool.json \
+  --chrome --firefox</code></pre>
       <h3>Page</h3>
 <pre><code>import { TetherClient } from 'pagetether/client';
 import { domProbes } from 'pagetether/probes';
 
+// scenes are answered by the browser, with
+// nothing to configure
 const tether = new TetherClient({ probes: domProbes });
 
 // a drop-in for fetch()
@@ -259,6 +310,7 @@ const res = await tether.fetch('/api/prices?page=2');</code></pre>
       <p class="cta">
         <a class="button primary" href="https://github.com/jacobzipper/pagetether">GitHub repository</a>
         <a class="button" href="https://github.com/jacobzipper/pagetether/blob/main/docs/DESIGN.md">Design document</a>
+        <a class="button" href="https://github.com/jacobzipper/pagetether/blob/main/docs/PRIOR-ART.md">Prior art</a>
       </p>
     </div>
   </div>

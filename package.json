@@ -1,7 +1,7 @@
 {
   "name": "pagetether",
   "version": "0.0.1",
-  "description": "Tether private API requests to a live page: a ratcheting, request-bound, rate-capped token that goes stale unless the page keeps running.",
+  "description": "Tether private API requests to a live page: a ratcheting, request-bound, rate-capped token that needs a real browser engine to keep alive, so a headless client reverse engineered from your JavaScript stops working.",
   "type": "module",
   "license": "MIT",
   "author": "Jacob Zipper",
@@ -16,15 +16,19 @@
     "./node": "./src/node.js",
     "./client": "./src/client.js",
     "./probes": "./src/probes.js",
+    "./scenes": "./src/scenes.js",
     "./core": "./src/core.js"
   },
   "files": [
     "src",
-    "docs"
+    "docs",
+    "pools",
+    "scripts/bake.js"
   ],
   "scripts": {
     "test": "node --test",
     "demo": "node demo/server.js",
+    "bake": "node scripts/bake.js",
     "site": "node scripts/build-site.js"
   },
   "keywords": [
@@ -32,6 +36,8 @@
     "bot-mitigation",
     "api-security",
     "request-signing",
+    "reverse-engineering",
+    "ai-agents",
     "ratchet"
   ],
   "homepage": "https://jacobzipper.github.io/pagetether/"
