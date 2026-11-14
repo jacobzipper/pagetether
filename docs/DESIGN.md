@@ -168,6 +168,7 @@ Further reading on what attackers do with these systems: `armxe/tiktok-api` (Tik
 ## 6. Deployment notes
 
 - **Verify where the client's request target is still intact**, at the edge or before any path rewriting.
+- **The verifier does not depend on Node.** `src/tether.js` takes its hashing, randomness and key exchange as arguments. `src/server.js` supplies `node:crypto`; `src/web.js` supplies WebCrypto for the key exchange and a small synchronous SHA-256 for the rest, because verification has to check the counter and mark it used with no `await` in between. That build runs in edge workers, and in a browser tab for the project site.
 - **What to do on failure is policy.** `verify()` returns a verdict. Returning 401 is the default in `guard()`. Serving decoy data or tarpitting instead denies the attacker a clean signal, at the price of confusing an honest client on a false positive.
 - **Roll out in report-only first.** Call `verify()`, log the result, serve the request anyway. Enforce once the failure rate from real users is understood, especially with custom probes.
 - **Move sensitive data out of the initial HTML.** Anything in `__NEXT_DATA__` or similar is free to a scraper.

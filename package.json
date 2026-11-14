@@ -11,6 +11,8 @@
   },
   "exports": {
     "./server": "./src/server.js",
+    "./web": "./src/web.js",
+    "./tether": "./src/tether.js",
     "./node": "./src/node.js",
     "./client": "./src/client.js",
     "./probes": "./src/probes.js",
@@ -22,7 +24,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "demo": "node demo/server.js"
+    "demo": "node demo/server.js",
+    "site": "node scripts/build-site.js"
   },
   "keywords": [
     "anti-scraping",
@@ -30,5 +33,6 @@
     "api-security",
     "request-signing",
     "ratchet"
-  ]
+  ],
+  "homepage": "https://jacobzipper.github.io/pagetether/"
 }

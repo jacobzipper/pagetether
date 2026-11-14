@@ -6,6 +6,8 @@ Once someone reverse engineers a site's private API, they mint whatever cookies 
 
 It is a second factor for an API, where the factor is "the page is open and still running".
 
+**[Site with a live generator and an attack lab →](https://jacobzipper.github.io/pagetether/)** Eight adversary strategies run against the real verifier in your browser, including the one that works.
+
 > **Status: experimental draft (v0).** The protocol will change, it has not been audited, and server state is in-memory only. Read [what it does not do](#what-it-does-not-do) before relying on it.
 
 ## How it works
@@ -73,15 +75,21 @@ const res = await tether.fetch('/api/prices?page=2'); // a drop-in for fetch()
 
 `Tether` is transport-agnostic: `mint()`, `beat()` and `verify()` take and return plain objects, so it fits any framework.
 
+It is also runtime-agnostic. `pagetether/server` binds the verifier to `node:crypto`; `pagetether/web` binds the same code to WebCrypto for edge runtimes, workers and browsers; `pagetether/tether` exports the core (`TetherCore`) if you want to supply your own hashing, randomness and key exchange.
+
 ## Try it
 
 ```sh
 npm test          # protocol tests and the attack suite
 npm run demo      # http://127.0.0.1:8787, a page and a private API
 node scripts/browser-smoke.js   # the same flow in headless Chrome (Node 22+)
+npm run site      # build the static site into _site/
+node scripts/site-smoke.js      # the site's live generator and attack lab in headless Chrome
 ```
 
 The demo page shows the generator ticking and prints its last request as a `curl` command, so you can watch the server refuse it.
+
+The [site](https://jacobzipper.github.io/pagetether/) is `site/` plus the library, with no build step beyond copying files. Its attack lab is ordinary code (`site/lab.js`) that `npm test` also runs, so every verdict the page shows is pinned by a test.
 
 ## What it does not do
 
