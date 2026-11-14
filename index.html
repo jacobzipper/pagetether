@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pagetether: an API that only answers a page that is still open</title>
+<meta name="description" content="An open protocol that makes a reverse-engineered API credential expire in seconds. Ratcheting keys, request-bound tokens, a per-page budget. Try the attacks yourself.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='7' cy='16' r='5' fill='%232a78d6'/%3E%3Ccircle cx='25' cy='16' r='5' fill='%230b0b0b'/%3E%3Cpath d='M12 16h8' stroke='%232a78d6' stroke-width='2.5'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="top">
+  <a class="mark" href="#top" aria-label="pagetether, back to top">
+    <svg viewBox="0 0 34 14" width="34" height="14" aria-hidden="true"><circle cx="5" cy="7" r="4.5" class="mark-page"/><path d="M10 7h14" class="mark-line"/><circle cx="29" cy="7" r="4.5" class="mark-server"/></svg>
+    pagetether
+  </a>
+  <nav aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#lab">Attack lab</a>
+    <a href="#limits">Limits</a>
+    <a href="#use">Use it</a>
+    <a class="gh" href="https://github.com/jacobzipper/pagetether">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Open protocol · draft 0</p>
+    <h1>An API that only answers a page that is still open.</h1>
+    <p class="lead">Once someone reverse engineers a site's private API, they copy its cookies and headers once and script against it forever. pagetether makes that credential perishable. Every request carries a token from a key that changes every epoch, and the only way to get the next key is to still be there.</p>
+    <p class="cta">
+      <a class="button primary" href="#lab">Watch the attacks fail</a>
+      <a class="button" href="https://github.com/jacobzipper/pagetether">Read the code</a>
+    </p>
+  </div>
+
+  <div class="widget" id="live" aria-label="Live generator">
+    <div class="widget-head">
+      <span class="widget-title">Live in this tab</span>
+      <span class="pill" id="live-status" data-state="open"><i></i><span>page open</span></span>
+    </div>
+
+    <div class="wire" id="wire">
+      <div class="node page"><b>Page</b><small>holds the key</small></div>
+      <div class="line" id="line"></div>
+      <div class="node server"><b>Server</b><small>checks every request</small></div>
+    </div>
+
+    <div class="readouts">
+      <div class="readout">
+        <span class="label">Epoch</span>
+        <span class="value" id="live-epoch">–</span>
+      </div>
+      <div class="readout grow">
+        <span class="label">Key expires in <span id="live-left">–</span></span>
+        <span class="meter" role="img" aria-label="Time left in this epoch"><i id="live-meter"></i></span>
+      </div>
+      <div class="readout">
+        <span class="label">Budget used</span>
+        <span class="pips" id="live-pips" role="img" aria-label="Requests used this epoch"></span>
+      </div>
+    </div>
+
+    <div class="tokenbox">
+      <span class="label">Last token sent</span>
+      <div class="token" id="live-token"><span class="muted">minting…</span></div>
+      <div class="verdict" id="live-verdict" aria-live="polite"></div>
+    </div>
+
+    <div class="widget-actions">
+      <button id="live-close">Close the page</button>
+      <button id="live-replay" disabled>Replay that token from a script</button>
+      <button id="live-retarget" disabled>Use it on another URL</button>
+    </div>
+    <div class="script-out" id="live-script" aria-live="polite"></div>
+    <p class="fine">The real client and the real verifier, both running in your browser. Nothing is sent anywhere. Epochs are shortened to 12 seconds here; the default is 30.</p>
+  </div>
+</section>
+
+<section id="problem" class="band">
+  <p class="eyebrow">The problem</p>
+  <h2>Reverse engineer once, replay forever.</h2>
+  <div class="cols">
+    <div>
+      <p>A site's frontend talks to a private API. Someone opens DevTools, works out how the frontend authenticates, reproduces it in a script, and pulls data at machine speed with no browser at all.</p>
+      <p>The frontend runs on a machine the attacker controls, so nothing can prevent this outright. Anything the page can compute, they can compute. The useful question is what a working scraper <em>costs</em>, and whether that cost recurs.</p>
+    </div>
+    <div class="compare">
+      <div class="compare-col">
+        <h3>A cookie or a static signing routine</h3>
+        <ul>
+          <li>Worked out once</li>
+          <li>Valid from anywhere, for as long as the session lasts</li>
+          <li>Unlimited requests per credential</li>
+          <li>Copies cost nothing</li>
+        </ul>
+      </div>
+      <div class="compare-col ours">
+        <h3>A pagetether generator</h3>
+        <ul>
+          <li>Has to keep running the server's code</li>
+          <li>Dead within one epoch of stopping</li>
+          <li>A fixed number of requests per epoch</li>
+          <li>Copies share one allowance and collide</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <p class="eyebrow">How it works</p>
+  <h2>A second factor for an API, where the factor is "the page is still running".</h2>
+
+  <ol class="steps">
+    <li>
+      <span class="num">1</span>
+      <h3>Mint</h3>
+      <p>The page asks for a <em>generator</em>. Your server decides who gets one: a login, a captcha, a device attestation. The seed is agreed by key exchange, so it never crosses the wire, and the page holds it as a key that script cannot export.</p>
+    </li>
+    <li>
+      <span class="num">2</span>
+      <h3>Sign</h3>
+      <p>Each request carries a token: a MAC over the method, path, query and body under the current key, plus a counter. It is good for that one request, once.</p>
+    </li>
+    <li>
+      <span class="num">3</span>
+      <h3>Beat</h3>
+      <p>Before the epoch ends the page proves it holds the current key and receives a fresh challenge and a small random program. The next key is derived from the old key, the challenge, and what the program computes in the page.</p>
+    </li>
+    <li>
+      <span class="num">4</span>
+      <h3>Budget</h3>
+      <p>Each epoch has a fixed number of valid counters per generator. There is no way to ask for more, and beating early is refused.</p>
+    </li>
+  </ol>
+
+  <div class="ratchet" role="img" aria-label="Keys ratchet from epoch to epoch. Each beat trades the current key for the next. A missed beat deletes the generator.">
+    <div class="epoch"><span class="k">k<sub>0</sub></span><small>epoch 0 · 30 s · 60 requests</small></div>
+    <div class="hop"><span>beat</span></div>
+    <div class="epoch"><span class="k">k<sub>1</sub></span><small>epoch 1 · 30 s · 60 requests</small></div>
+    <div class="hop"><span>beat</span></div>
+    <div class="epoch"><span class="k">k<sub>2</sub></span><small>epoch 2 · 30 s · 60 requests</small></div>
+    <div class="hop missed"><span>no beat</span></div>
+    <div class="epoch dead"><span class="k">✕</span><small>generator deleted</small></div>
+  </div>
+
+  <div class="cols anatomy-wrap">
+    <div>
+      <h3>What a token is made of</h3>
+      <div class="anatomy" aria-label="Token anatomy">
+        <div><code>0</code><small>version</small></div>
+        <div><code>q7Jm…x2Ag</code><small>generator</small></div>
+        <div><code>14</code><small>epoch</small></div>
+        <div><code>3</code><small>counter</small></div>
+        <div class="wide"><code>HMAC(k<sub>14</sub>, epoch ‖ counter ‖ request)</code><small>proof</small></div>
+      </div>
+      <p>The server recomputes the proof, checks the counter has not been used and is under the budget, and that is the whole verification. Failed proofs are rejected before any state is touched, so someone without the key cannot burn counters or get a generator revoked.</p>
+    </div>
+    <div>
+      <h3>Probes: questions for a real page</h3>
+      <p>The program the server sends can call <em>probes</em>: small questions that a genuine browser environment answers one way and an imitation answers another. The bundled examples ask the layout engine to size a box.</p>
+      <p>The answers are never sent back. They are folded into the next key. A wrong answer produces a wrong key, and the next request fails with the same error as a forged token. There is no verdict to study and nothing to say which answer was off.</p>
+    </div>
+  </div>
+</section>
+
+<section id="lab" class="band">
+  <p class="eyebrow">Attack lab</p>
+  <h2>Eight things an adversary tries, run for real.</h2>
+  <p class="section-lead">Each run starts a fresh verifier in this tab and plays the attack against it, using a from-scratch port of the client that holds its key in the clear. Time is simulated, so 30-second epochs pass instantly. The last attack succeeds, and that is the point of showing it.</p>
+
+  <div class="lab">
+    <div class="lab-list" role="tablist" aria-label="Attacks" id="lab-list"></div>
+    <div class="lab-panel" id="lab-panel" role="tabpanel">
+      <div class="lab-head">
+        <div>
+          <h3 id="lab-title"></h3>
+          <p id="lab-blurb"></p>
+        </div>
+        <button class="button primary" id="lab-run">Run attack</button>
+      </div>
+      <div class="console" id="lab-console" aria-live="polite" aria-label="Attack log"></div>
+      <div class="viz-root" id="lab-chart" hidden></div>
+      <div class="outcome" id="lab-outcome" hidden></div>
+    </div>
+  </div>
+</section>
+
+<section id="limits">
+  <p class="eyebrow">Limits</p>
+  <h2>What it does not do.</h2>
+  <div class="limits">
+    <div>
+      <h3>It does not stop a real browser under automation.</h3>
+      <p>A scripted browser driving the real page passes every check. pagetether forces a scraper back into a browser and caps what each one can pull. Spotting automated browsers is a separate job, and probes are a place to put those checks.</p>
+    </div>
+    <div>
+      <h3>The bundled probes are examples.</h3>
+      <p>Their answers are in the repository. They stop a naive port and show the mechanism. Bring your own and calibrate them on real traffic before enforcing.</p>
+    </div>
+    <div>
+      <h3>The gate carries real weight.</h3>
+      <p>The budget caps each generator, so a determined attacker runs many. What each one costs to obtain is decided by your mint gate, not by this protocol.</p>
+    </div>
+    <div>
+      <h3>It only covers what is fetched through it.</h3>
+      <p>Data already in the page's HTML, images, navigations and WebSocket handshakes are not protected. Move sensitive data out of the initial HTML.</p>
+    </div>
+    <div>
+      <h3>State lives in one process, for now.</h3>
+      <p>Running several API nodes needs a shared store with an atomic check-and-set. That is not built yet.</p>
+    </div>
+    <div>
+      <h3>It is a draft.</h3>
+      <p>The protocol will change and nobody has audited it. The design document lists the open questions.</p>
+    </div>
+  </div>
+</section>
+
+<section id="use" class="band">
+  <p class="eyebrow">Use it</p>
+  <h2>Two files of setup, no dependencies.</h2>
+  <div class="cols code-cols">
+    <div>
+      <h3>Server</h3>
+<pre><code>import { Tether } from 'pagetether/server';
+import { controlRoutes, guard, readBody } from 'pagetether/node';
+import { domOracles } from 'pagetether/probes';
+
+const tether = new Tether({
+  epochMs: 30_000,     // a key lives this long
+  budget: 60,          // requests per epoch
+  probes: domOracles,  // expected probe answers
+  gate: ({ req }) =&gt; isLoggedIn(req),
+});
+const control = controlRoutes(tether);
+
+http.createServer(async (req, res) =&gt; {
+  if (await control(req, res)) return;
+  const body = await readBody(req);
+  if (!guard(tether, req, res, body)) return;
+  // your API
+});</code></pre>
+    </div>
+    <div>
+      <h3>Page</h3>
+<pre><code>import { TetherClient } from 'pagetether/client';
+import { domProbes } from 'pagetether/probes';
+
+const tether = new TetherClient({ probes: domProbes });
+
+// a drop-in for fetch()
+const res = await tether.fetch('/api/prices?page=2');</code></pre>
+      <p class="after-code">The verifier is transport-agnostic and runs on Node or any WebCrypto runtime. This page runs it in your browser.</p>
+      <p class="cta">
+        <a class="button primary" href="https://github.com/jacobzipper/pagetether">GitHub repository</a>
+        <a class="button" href="https://github.com/jacobzipper/pagetether/blob/main/docs/DESIGN.md">Design document</a>
+      </p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <span>pagetether · MIT licence · experimental</span>
+  <a href="https://github.com/jacobzipper/pagetether">github.com/jacobzipper/pagetether</a>
+</footer>
+
+<div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
