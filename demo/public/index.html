@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pagetether demo</title>
+<style>
+  :root { color-scheme: light dark; --line: #8884; --dim: #888; --ok: #2a9d5c; --bad: #d1495b; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; margin-bottom: .2rem; }
+  p.lead { color: var(--dim); margin-top: 0; }
+  section { border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1rem; margin: 1rem 0; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 .6rem; }
+  dl { display: grid; grid-template-columns: 9rem 1fr; gap: .2rem .8rem; margin: 0; }
+  dt { color: var(--dim); }
+  dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: .7rem; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--ok); }
+  button { font: inherit; padding: .4rem .8rem; border-radius: 6px; border: 1px solid var(--line); background: none; cursor: pointer; margin: 0 .4rem .4rem 0; }
+  button:hover { border-color: currentColor; }
+  pre { font: 12.5px/1.45 ui-monospace, monospace; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #log { max-height: 16rem; overflow: auto; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>pagetether demo</h1>
+<p class="lead">The API below only answers this page while it stays open. Each request carries a token made from a key that changes every epoch.</p>
+
+<section>
+  <h2>Generator</h2>
+  <dl>
+    <dt>id</dt><dd id="gid">not minted yet</dd>
+    <dt>epoch</dt><dd id="epoch">–</dd>
+    <dt>budget used</dt><dd id="used">–</dd>
+    <dt>epoch age</dt><dd id="age">–</dd>
+  </dl>
+  <div class="bar"><i id="bar"></i></div>
+</section>
+
+<section>
+  <h2>Call the private API</h2>
+  <button id="one">GET /api/prices</button>
+  <button id="search">POST /api/search</button>
+  <button id="burst">Burst of 30</button>
+  <pre id="log"></pre>
+</section>
+
+<section>
+  <h2>Now try it without the page</h2>
+  <p style="margin-top:0">This is the last request this page sent, as a curl command. The token in it has been spent, so the server answers 401 <code>replay</code>. Change the URL and it answers <code>bad_mac</code>. Wait a minute with this tab closed and it answers <code>expired</code>.</p>
+  <pre id="curl">Send a request first.</pre>
+</section>
+
+<script type="module">
+import { TetherClient } from '/pagetether/client.js';
+import { domProbes } from '/pagetether/probes.js';
+import { TOKEN_HEADER } from '/pagetether/core.js';
+
+// Record the outgoing token so the page can show it; the client is otherwise stock.
+let last = null;
+const recordingFetch = (input, init) => {
+  if (input instanceof Request && input.headers.has(TOKEN_HEADER)) {
+    last = { url: input.url, method: input.method, token: input.headers.get(TOKEN_HEADER) };
+  }
+  return fetch(input, init);
+};
+
+const tether = new TetherClient({ probes: domProbes, fetch: recordingFetch });
+window.tether = tether; // for poking at from the console
+
+const $ = (id) => document.getElementById(id);
+let page = 1;
+
+function log(text, cls) {
+  const line = document.createElement('div');
+  line.className = cls;
+  line.textContent = `${new Date().toLocaleTimeString()}  ${text}`;
+  $('log').prepend(line);
+}
+
+async function call(input, init) {
+  try {
+    const res = await tether.fetch(input, init);
+    const body = await res.json();
+    if (res.ok) {
+      log(`${res.status} ${init?.method ?? 'GET'} ${input}  epoch ${body.tether.epoch}, counter ${body.tether.ctr}, ${body.items.length} items`, 'ok');
+    } else {
+      log(`${res.status} ${input}  ${body.error}`, 'bad');
+    }
+    if (last) $('curl').textContent = `curl -i -X ${last.method} '${last.url}' \\\n  -H '${TOKEN_HEADER}: ${last.token}'`;
+    return res.ok;
+  } catch (err) {
+    log(`failed: ${err.message}`, 'bad');
+    return false;
+  }
+}
+
+$('one').onclick = () => call(`/api/prices?page=${page++}`);
+$('search').onclick = () =>
+  call('/api/search', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: 'tern' }) });
+$('burst').onclick = async () => {
+  log('burst: 30 requests; the ones past the budget wait for the next epoch');
+  const results = await Promise.all(Array.from({ length: 30 }, () => call(`/api/prices?page=${page++}`)));
+  log(`burst done: ${results.filter(Boolean).length}/30 accepted`);
+};
+
+setInterval(() => {
+  const s = tether.state;
+  $('gid').textContent = s ? s.gid : 'none (will mint on next request)';
+  $('epoch').textContent = s ? s.epoch : '–';
+  $('used').textContent = s ? `${s.used} / ${s.budget}` : '–';
+  $('age').textContent = s ? `${(s.ageMs / 1000).toFixed(0)} s of ${s.epochMs / 1000} s` : '–';
+  $('bar').style.width = s ? `${Math.min(100, (s.ageMs / s.epochMs) * 100)}%` : '0';
+}, 250);
+
+// Signal for automated smoke tests.
+window.demoReady = call(`/api/prices?page=${page++}`);
+</script>
+</body>
+</html>
