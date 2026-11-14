@@ -1,11 +1,13 @@
-// The site's two interactive pieces: the live generator in the hero (the real
-// client against the real verifier, both in this tab, in real time) and the
-// attack lab (site/lab.js scenarios on a simulated clock).
+// The site's interactive pieces: the live generator in the hero (the real
+// client against the real verifier, both in this tab, in real time), the scene
+// viewer (this browser laying out scenes from the example pool) and the attack
+// lab (site/lab.js scenarios on a simulated clock).
 
 import { Tether } from './lib/web.js';
 import { TetherClient } from './lib/client.js';
 import { domProbes, domOracles } from './lib/probes.js';
 import { TOKEN_HEADER, ERROR_HEADER } from './lib/core.js';
+import { domScenes, measureScene, sceneDigest, digestToHex, digestFromHex } from './lib/scenes.js';
 import { scenarios } from './lab.js';
 
 const $ = (id) => document.getElementById(id);
@@ -61,11 +63,35 @@ function layoutProbesAgree() {
 const realProbes = layoutProbesAgree();
 const pageProbes = realProbes ? domProbes : domOracles;
 
+// Layout scenes. The example pool was baked in Chromium, Firefox and WebKit
+// (pools/example.json). Lay every scene out here and compare: this is the
+// calibration a deployment would run in report mode, done in the open.
+const example = (await fetch('pool.json').then((r) => r.json())).scenes;
+const engine = domScenes();
+const agreement = { of: example.length, right: 0, ms: 0, wrong: new Map() };
+for (const [i, entry] of example.entries()) {
+  const started = performance.now();
+  let got = null;
+  try {
+    got = digestToHex(engine(entry));
+  } catch {
+    // counted as a disagreement below
+  }
+  agreement.ms += performance.now() - started;
+  if (got === entry.d) agreement.right++;
+  else agreement.wrong.set(entry.c, digestFromHex(entry.d));
+  if (i % 12 === 11) await sleep(0); // keep the page responsive while checking
+}
+// Where this browser disagreed, the demos use the baked answer and say so.
+const pageScenes = (scene) => agreement.wrong.get(scene.c) ?? engine(scene);
+const half = example.length >> 1;
+const env = { probes: pageProbes, scenes: pageScenes, pool: example.slice(0, half), nextPool: example.slice(half) };
+
 // --- Live generator ---------------------------------------------------------
 
 function startLive() {
   const cfg = { epochMs: 12_000, beatAfterMs: 8_000, graceMs: 2_000, budget: 8 };
-  const server = new Tether({ ...cfg, probes: domOracles });
+  const server = new Tether({ ...cfg, probes: domOracles, scenes: example });
   const decoder = new TextDecoder();
   const json = (code, obj, headers) =>
     new Response(JSON.stringify(obj), { status: code, headers: { 'content-type': 'application/json', ...headers } });
@@ -154,7 +180,7 @@ function startLive() {
   function openPage() {
     frozen = null;
     shownEpoch = null;
-    client = new TetherClient({ fetch: network, probes: pageProbes });
+    client = new TetherClient({ fetch: network, probes: pageProbes, scenes: pageScenes });
     open = true;
     $('live-script').textContent = '';
     $('live-close').textContent = 'Close the page';
@@ -244,6 +270,78 @@ function startLive() {
       return open;
     },
   };
+}
+
+// --- Scene viewer -----------------------------------------------------------
+
+function startScenes() {
+  const plot = $('scene-plot');
+  const facts = $('scene-facts');
+  let index = 0;
+
+  const boxes = (node) => node.slice(1).reduce((n, child) => n + boxes(child), 1);
+  const short = (digest) => `${digestToHex(digest).slice(0, 8)}…`;
+  const fact = (ok, label, value, note) => {
+    const row = el('div', 'scene-fact');
+    const head = el('div', 'scene-fact-head');
+    head.append(el('span', 'label', label), el('code', null, value));
+    row.append(head, status(ok, note));
+    return row;
+  };
+
+  function show() {
+    const entry = example[index];
+    const rects = measureScene(entry);
+    const count = rects.length / 4;
+    // Boxes can overflow the root on any side, so frame all of them.
+    let [x0, y0, x1, y1] = [0, 0, rects[2], rects[3]];
+    for (let i = 0; i < rects.length; i += 4) {
+      const [x, y, w, h] = rects.slice(i, i + 4);
+      if (w === 0 && h === 0) continue;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x + w);
+      y1 = Math.max(y1, y + h);
+    }
+
+    const root = svg('svg', { viewBox: `${x0 - 2} ${y0 - 2} ${x1 - x0 + 4} ${Math.max(y1 - y0, 40) + 4}`, role: 'img' });
+    root.setAttribute('aria-label', `Scene ${index + 1}: ${count} boxes as this browser laid them out`);
+    for (let i = 0; i < rects.length; i += 4) {
+      const [x, y, w, h] = rects.slice(i, i + 4);
+      if (w === 0 && h === 0) continue;
+      root.append(svg('rect', { x, y, width: Math.max(w, 0.5), height: Math.max(h, 0.5), rx: 1.5, class: i === 0 ? 'scene-root' : 'scene-box' }));
+    }
+    plot.textContent = '';
+    plot.append(root);
+
+    const mine = sceneDigest(rects);
+    const agrees = digestToHex(mine) === entry.d;
+    facts.textContent = '';
+    facts.append(
+      fact(agrees, 'This browser', short(mine), agrees ? 'matches the answer measured in Chromium, Firefox and WebKit' : `differs from the baked answer ${entry.d.slice(0, 8)}…`),
+      fact(false, 'A DOM library with no layout engine', short(sceneDigest(new Array(rects.length).fill(0))), `reports all ${count} boxes as 0 by 0, so it derives the wrong key`),
+    );
+    $('scene-caption').textContent = `Scene ${index + 1} of ${example.length}: ${count} boxes, ${entry.c.length.toLocaleString('en-US')} characters of CSS, no text and no images.`;
+  }
+
+  const all = agreement.right === agreement.of;
+  const summary = $('scene-agree');
+  summary.append(
+    status(all, `This browser gave the baked answer for ${agreement.right} of ${agreement.of} scenes`),
+    el('span', 'muted', `${Math.round(agreement.ms)} ms in total, ${(agreement.ms / agreement.of).toFixed(1)} ms a scene.`),
+  );
+  if (!all) {
+    summary.append(
+      el('p', 'fine', 'That is a false positive, and exactly what the bake is meant to rule out. The demos on this page use the baked answers for those scenes. If you can, open an issue with your browser and version.'),
+    );
+  }
+
+  $('scene-next').addEventListener('click', () => {
+    index = (index + 1) % example.length;
+    show();
+  });
+  show();
+  return { agreement, show };
 }
 
 // --- Chart ------------------------------------------------------------------
@@ -510,7 +608,7 @@ function startLab() {
     outcomeEl.hidden = true;
     consoleEl.textContent = '';
 
-    const out = await scenario.run(pageProbes);
+    const out = await scenario.run(env);
     if (mine !== runId) return out;
     for (const line of out.lines) {
       consoleEl.append(lineNode(line));
@@ -576,5 +674,6 @@ function startLab() {
 window.addEventListener('scroll', () => (tooltip.hidden = true), { passive: true });
 
 const live = startLive();
+const scenes = startScenes();
 const lab = startLab();
-window.pagetetherSite = { live, lab, realProbes };
+window.pagetetherSite = { live, lab, scenes, realProbes };

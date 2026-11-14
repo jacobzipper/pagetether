@@ -1,24 +1,31 @@
-// The attack lab: eight adversary strategies, each played for real against a
+// The attack lab: nine adversary strategies, each played for real against a
 // fresh verifier on a simulated clock. No DOM in here, so the same scenarios run
 // under `node --test` (test/lab.test.js) and in the page (site/app.js).
 //
-// Every scenario returns { lines, outcome, chart? }. Nothing in `lines` is
-// scripted: each verdict is what the verifier answered.
+// Every scenario takes an environment and returns { lines, outcome, chart? }.
+// Nothing in `lines` is scripted: each verdict is what the verifier answered.
+//
+//   env.probes    the page's answers to the formula probes
+//   env.scenes    a rendering engine: scene -> digest. The page's own, and what
+//                 an adversary has when they keep a real browser around.
+//   env.pool      the scene pool the server starts with
+//   env.nextPool  the pool it rotates to
 
 import { Tether } from './lib/web.js';
 import { domOracles } from './lib/probes.js';
 import { b64u, formatToken } from './lib/core.js';
 import { mintGenerator, token, beatMessage, advance } from './lab-client.js';
+import { sceneDigest } from './lib/scenes.js';
 
 const T0 = 1_800_000_000_000;
 const PRICES = '/api/prices?page=1';
 const random = (n) => globalThis.crypto.getRandomValues(new Uint8Array(n));
 
 /** A verifier with default settings, a clock we control, and a log. */
-function world() {
+function world(env) {
   const clock = { t: 0 };
   const lines = [];
-  const server = new Tether({ now: () => T0 + clock.t, probes: domOracles });
+  const server = new Tether({ now: () => T0 + clock.t, probes: domOracles, scenes: env.pool });
   const code = (result) => (result.ok ? 'ok' : result.error);
 
   return {
@@ -57,9 +64,9 @@ const bump = (counts, key) => {
 
 // --- 1 ----------------------------------------------------------------------
 
-async function cold(pageProbes) {
-  const w = world();
-  const page = await mintGenerator(w.server, pageProbes);
+async function cold(env) {
+  const w = world(env);
+  const page = await mintGenerator(w.server, env.probes, env.scenes);
   w.note('A real page is open and has minted a generator.');
   w.send('page', `GET ${PRICES}`, token(page, 0, 'GET', PRICES));
 
@@ -92,9 +99,9 @@ async function cold(pageProbes) {
 
 // --- 2 ----------------------------------------------------------------------
 
-async function replay(pageProbes) {
-  const w = world();
-  let page = await mintGenerator(w.server, pageProbes);
+async function replay(env) {
+  const w = world(env);
+  let page = await mintGenerator(w.server, env.probes, env.scenes);
   const captured = token(page, 0, 'GET', PRICES);
   w.send('page', `GET ${PRICES}`, captured);
   w.note('The adversary copies that request out of DevTools, headers and all.');
@@ -104,7 +111,7 @@ async function replay(pageProbes) {
 
   w.clock.t = 20_000;
   const next = w.beat('page', 'beat: trade the epoch 0 key for epoch 1', page);
-  page = advance(page, next, pageProbes);
+  page = advance(page, next, env.probes, env.scenes);
 
   w.clock.t = 26_000;
   w.send('adversary', 'the same request, 26 seconds after it was captured', captured);
@@ -121,9 +128,9 @@ async function replay(pageProbes) {
 
 // --- 3 ----------------------------------------------------------------------
 
-async function retarget(pageProbes) {
-  const w = world();
-  const page = await mintGenerator(w.server, pageProbes);
+async function retarget(env) {
+  const w = world(env);
+  const page = await mintGenerator(w.server, env.probes, env.scenes);
   const held = token(page, 0, 'GET', PRICES);
   w.note(`The adversary holds one token the page made for GET ${PRICES}. It has not been spent yet.`);
 
@@ -148,9 +155,9 @@ async function retarget(pageProbes) {
 
 // --- 4 ----------------------------------------------------------------------
 
-async function stale(pageProbes) {
-  const w = world();
-  const gen = await mintGenerator(w.server, pageProbes);
+async function stale(env) {
+  const w = world(env);
+  const gen = await mintGenerator(w.server, env.probes, env.scenes);
   w.note(
     'The adversary opens the real page, lets it mint, and gets the key bytes out (we grant them that). They close the browser and a script takes over at one request a second. It signs correctly but treats the key like a cookie: it never beats.',
   );
@@ -190,9 +197,9 @@ async function stale(pageProbes) {
 
 // --- 5 ----------------------------------------------------------------------
 
-async function flood() {
-  const w = world();
-  let gen = await mintGenerator(w.server, domOracles);
+async function flood(env) {
+  const w = world(env);
+  let gen = await mintGenerator(w.server, domOracles, env.scenes);
   w.note('A complete port of the client: right probe answers, beats on time. It wants 20 requests a second.');
 
   const epochs = 5;
@@ -218,7 +225,7 @@ async function flood() {
 
     w.clock.t = base + 20_000;
     const next = w.beat('adversary', `beat at the earliest allowed moment, for epoch ${e + 1}`, gen);
-    gen = advance(gen, next, domOracles);
+    gen = advance(gen, next, domOracles, env.scenes);
   }
 
   return {
@@ -241,10 +248,10 @@ async function flood() {
 
 // --- 6 ----------------------------------------------------------------------
 
-async function clone() {
-  const w = world();
+async function clone(env) {
+  const w = world(env);
   const workers = 8;
-  const gen = await mintGenerator(w.server, domOracles);
+  const gen = await mintGenerator(w.server, domOracles, env.scenes);
   w.note('One generator, minted once, then copied to 8 workers. Each runs on its own like a page would: its own counter, 3 requests a second.');
 
   const sent = new Array(workers).fill(0);
@@ -271,7 +278,7 @@ async function clone() {
   w.beat('adversary', 'worker 5 beats 6 s later, with the epoch 0 key', gen);
   w.clock.t = 27_000;
   w.beat('adversary', 'worker 6 beats', gen);
-  const ahead = advance(gen, first, domOracles);
+  const ahead = advance(gen, first, domOracles, env.scenes);
   const target = '/api/prices?page=2';
   w.send('adversary', 'worker 1, now on the epoch 1 key, sends a request', token(ahead, 0, 'GET', target), 'GET', target);
 
@@ -294,42 +301,113 @@ async function clone() {
 
 // --- 7 ----------------------------------------------------------------------
 
-async function noBrowser(pageProbes) {
-  const w = world();
-  w.note('A script with no browser behind it. It speaks the protocol correctly but has no layout engine to answer the probes.');
+const boxes = (node) => node.slice(1).reduce((n, child) => n + boxes(child), 1);
+// What a DOM without a layout engine reports: every box at 0, 0 and 0 by 0.
+const zeros = (scene) => sceneDigest(new Array(4 * boxes(scene.t)).fill(0));
+// A rough guess: every box as wide as the root, stacked 16 px apart.
+const stacked = (scene) => {
+  const width = Number(/width:(\d+)px/.exec(scene.c)?.[1] ?? 0);
+  return sceneDigest(Array.from({ length: boxes(scene.t) }, (_, i) => [0, 16 * i, width, 16]).flat());
+};
 
-  const zero = { box: () => 0, calc: () => 0 };
-  const first = await mintGenerator(w.server, zero);
-  w.note('Mint succeeds. The noise program runs with every probe stubbed to return 0.');
+async function noBrowser(env) {
+  const w = world(env);
+  w.note(
+    'The client an agent writes after reading all of your JavaScript: the protocol reimplemented exactly, the formula probes answered correctly, and no browser. Each epoch the server also sends two layout scenes, and there is no formula for those.',
+  );
+
+  const first = await mintGenerator(w.server, domOracles, zeros);
+  w.note('Mint succeeds. The scenes are "rendered" in a DOM library with no layout engine, which reports every box as 0 by 0.');
   w.send('adversary', `GET ${PRICES}`, token(first, 0, 'GET', PRICES));
 
   w.clock.t = 2000;
-  const echo = { box: (arg) => arg & 0xff, calc: (arg) => arg & 0xff };
-  const second = await mintGenerator(w.server, echo);
-  w.note('A new generator, and a different guess: return the low byte of the argument.');
+  const second = await mintGenerator(w.server, domOracles, stacked);
+  w.note('A new generator and a rough guess at the layout: every box full width, stacked.');
   w.send('adversary', `GET ${PRICES}`, token(second, 0, 'GET', PRICES));
-  w.note('Both rejections are the error a forged token gets. The server never says a probe was wrong, or which one.');
+  w.note('Both rejections are the error a forged token gets. The server never says a scene was wrong, which one, or by how much.');
 
   w.clock.t = 4000;
-  const page = await mintGenerator(w.server, pageProbes);
+  const page = await mintGenerator(w.server, env.probes, env.scenes);
   w.send('page', `GET ${PRICES} from a real page, same server`, token(page, 0, 'GET', PRICES));
 
   return {
     lines: w.lines,
     outcome: {
       kind: 'stopped',
-      title: 'Stopped, for a naive port',
-      text: 'The probe answers are folded into the key and never sent, so a wrong environment produces a wrong key and an ordinary-looking failure. The bundled probes are examples with public answers, though. Someone who reads them can compute the right values, which is the next attack.',
+      title: 'Stopped',
+      text: 'The expected answers were measured in real browsers when the pool was baked, and only the server has them. Nothing in the client says how to compute them, so reading the code does not help. Getting them right takes an engine that resolves the cascade and lays out blocks, floats, flex and grid the way browsers do. The next two attacks bring one.',
     },
   };
 }
 
 // --- 8 ----------------------------------------------------------------------
 
-async function fullPort() {
-  const w = world();
-  let gen = await mintGenerator(w.server, domOracles);
-  w.note('The best the adversary can do without a browser: the whole client reimplemented, the probe answers computed by formula, the pace kept under the budget, every beat on time.');
+async function table(env) {
+  const w = world(env);
+  const answers = new Map(env.pool.map((scene) => [scene.c, env.scenes(scene)]));
+  let hits = 0;
+  let misses = 0;
+  const lookup = (scene) => {
+    const known = answers.get(scene.c);
+    if (known) hits++;
+    else misses++;
+    return known ?? zeros(scene);
+  };
+  w.note(
+    `The adversary rendered all ${env.pool.length} scenes in the server's pool in a real browser and kept the answers. That is generous: a client only ever sees the two scenes each epoch sends it. The browser is now closed and a script answers from the table.`,
+  );
+
+  let gen = await mintGenerator(w.server, domOracles, lookup);
+  const epochs = 5;
+  const sent = [];
+  const accepted = [];
+  for (let e = 0; e < epochs; e++) {
+    const base = e * 20_000;
+    const counts = {};
+    for (let i = 0; i < 60; i++) {
+      w.clock.t = base + i * 333;
+      const target = `/api/prices?page=${e * 60 + i + 1}`;
+      bump(counts, w.quiet(token(gen, i, 'GET', target), 'GET', target));
+    }
+    w.tally('adversary', `epoch ${e}: 60 requests in 20 s`, counts);
+    sent.push(60);
+    accepted.push(counts.ok ?? 0);
+
+    w.clock.t = base + 20_000;
+    if (e === 1) {
+      w.server.setScenes(env.nextPool);
+      w.note('The operator bakes a fresh pool and swaps it in. Pages that are open do not notice: they render whatever they are sent.');
+    }
+    const next = w.beat('adversary', `beat for epoch ${e + 1}`, gen);
+    if (next.ok) gen = advance(gen, next, domOracles, lookup);
+  }
+
+  return {
+    lines: w.lines,
+    chart: {
+      title: 'Requests per epoch: answering scenes from a table',
+      axis: 'Epoch',
+      labels: Array.from({ length: epochs }, (_, i) => `epoch ${i}`),
+      sent,
+      accepted,
+      cap: w.server.budget,
+    },
+    outcome: {
+      kind: 'stopped',
+      title: 'Stopped at the next rotation',
+      text: `The table answered ${hits} scenes, then met ${misses} it had never seen, and the key it derived was wrong from then on. A table is a cache in front of a real browser. It lasts until the pool changes, and baking a pool costs the operator a few minutes of browser time. An adversary who wants to keep up has to keep a browser running, which is the last attack.`,
+    },
+  };
+}
+
+// --- 9 ----------------------------------------------------------------------
+
+async function fullPort(env) {
+  const w = world(env);
+  let gen = await mintGenerator(w.server, domOracles, env.scenes);
+  w.note(
+    'The best the adversary can do: the whole client reimplemented, a real browser kept running to render every scene the server sends, the pace kept under the budget, every beat on time.',
+  );
 
   const epochs = 5;
   const sent = [];
@@ -347,13 +425,13 @@ async function fullPort() {
     accepted.push(counts.ok ?? 0);
     w.clock.t = base + 20_000;
     const next = w.beat('adversary', `beat for epoch ${e + 1}`, gen);
-    gen = advance(gen, next, domOracles);
+    gen = advance(gen, next, domOracles, env.scenes);
   }
 
   return {
     lines: w.lines,
     chart: {
-      title: 'Requests per epoch: a full port at page speed',
+      title: 'Requests per epoch: a browser in the loop, at page speed',
       axis: 'Epoch',
       labels: Array.from({ length: epochs }, (_, i) => `epoch ${i}`),
       sent,
@@ -363,7 +441,7 @@ async function fullPort() {
     outcome: {
       kind: 'works',
       title: 'This one works, at page speed',
-      text: 'No protocol can stop code that does everything the page does, and pagetether does not claim to. What changed is the price. The scraper gets 3 requests a second per generator and has to keep executing a program the server rerolls every epoch. Going faster means more generators, and each one has to get through your mint gate. Probes that are harder to compute than these examples push the adversary back into a real browser.',
+      text: 'No protocol can stop code that does everything the page does, and pagetether does not claim to. What changed is the shape of the scraper. It is no longer an HTTP client: it carries a browser engine, it gets 3 requests a second per generator, and it has to keep answering a program the server rerolls every epoch. One browser can render scenes for many generators, so scenes do not limit scale by themselves. The budget and your mint gate do: going faster means more generators, and each one has to get through the gate.',
     },
   };
 }
@@ -408,13 +486,19 @@ export const scenarios = [
   {
     id: 'no-browser',
     title: 'Port the client, skip the browser',
-    blurb: 'Reimplement the protocol in a script and stub out the parts that need a real page.',
+    blurb: 'Hand an agent the JavaScript and a network capture and let it write a client that needs no browser. This is the "turn any website into an API" attack.',
     run: noBrowser,
   },
   {
+    id: 'table',
+    title: 'Learn the answers, then go headless',
+    blurb: 'Use a real browser once to collect the answer to every layout scene, then answer from a lookup table.',
+    run: table,
+  },
+  {
     id: 'full-port',
-    title: 'Port everything, fake the probes',
-    blurb: 'Reimplement the client completely, including the right probe answers, and behave exactly like a page.',
+    title: 'Keep a real browser in the loop',
+    blurb: 'Reimplement the client completely, keep a browser running to render whatever the server asks for, and behave exactly like a page.',
     run: fullPort,
   },
 ];
